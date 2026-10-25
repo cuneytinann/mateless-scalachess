@@ -1,0 +1,70 @@
+From 81e2e063cbe18892c45044a5fda37bfc63bd63e0 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?C=C3=BCneyt=20=C4=B0nan?= <cuneytinan37@gmail.com>
+Date: Sun, 25 Oct 2026 14:59:46 +0300
+Subject: [PATCH 3/3] MatelessTest: Lichess timeouts the opponent could never
+ win, stalemate, flags
+
+Six positions from Lichess timeouts scored as wins (three blocked pawn
+structures, three forced lines) that opponentHasInsufficientMaterial now
+draws; a position where the opponent can still mate; no verdict in a
+stalemate; a game's flags, and a takeback.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01CNt12HAZEwEiCouRmksRvj
+---
+ test-kit/src/test/scala/MatelessTest.scala | 43 ++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+ create mode 100644 test-kit/src/test/scala/MatelessTest.scala
+
+diff --git a/test-kit/src/test/scala/MatelessTest.scala b/test-kit/src/test/scala/MatelessTest.scala
+new file mode 100644
+index 0000000..809e323
+--- /dev/null
++++ b/test-kit/src/test/scala/MatelessTest.scala
+@@ -0,0 +1,43 @@
++package chess
++
++import chess.format.FullFen
++import chess.mateless.Flags
++import chess.variant.Standard
++
++class MatelessTest extends ChessTest:
++
++  // Lichess timeouts scored as wins: the side to move ran out of time, though its opponent could
++  // never mate. Blocked pawn structures (the lock detector), then forced lines (the Domino search).
++  List(
++    "8/8/4k3/3p2p1/1p1P1pP1/1P3P2/8/3K4 b - - 47 92",
++    "3k4/8/3p4/2pP1p1p/p1P2PpP/P2K2P1/8/8 b - - 4 56",
++    "8/8/4k3/p2p2p1/P2P2P1/2K5/8/8 w - - 51 75",
++    "7k/8/6Q1/6Pp/p7/R2P2KP/8/8 b - - 0 56",
++    "8/8/8/6p1/8/2B2KP1/kP6/3Q4 b - - 4 45",
++    "r4b2/p7/4R2p/kpp5/2P5/KPB3P1/3rBP1P/8 b - - 1 33"
++  ).foreach: fen =>
++    test(s"opponent can never mate: $fen"):
++      val position = fenToGame(FullFen(fen), Standard).position
++      assert(position.opponentCanNeverMate)
++      assert(position.opponentHasInsufficientMaterial)
++
++  test("opponent can still mate: some move does not lead to a draw"):
++    assertNot(fenToGame(FullFen("2kQ4/8/8/2K5/8/8/8/8 b - - 0 1"), Standard).position.opponentCanNeverMate)
++
++  test("no verdict without legal moves: stalemate"):
++    assertNot(fenToGame(FullFen("k7/2Q5/8/2K5/8/8/8/8 b - - 0 1"), Standard).position.opponentCanNeverMate)
++
++  test("flags: a blocked position is dead"):
++    val flags = Flags()
++    flags.update(fenToGame(FullFen("8/8/4k3/3p2p1/1p1P1pP1/1P3P2/8/3K4 b - - 47 92"), Standard).position, 0)
++    assert(flags.dead)
++
++  test("flags: a flag that came down goes up again when the move is taken back"):
++    val flags = Flags()
++    flags.update(fenToGame(FullFen("4k3/8/8/8/8/8/3q4/4K3 w - - 0 1"), Standard).position, 0)
++    assert(flags.neverMates(Color.White) && !flags.neverMates(Color.Black))
++    flags.update(fenToGame(FullFen("4k3/8/8/8/8/8/3K4/8 b - - 0 1"), Standard).position, 1) // Kxd2
++    assert(flags.dead)
++    flags.rewind(0)
++    assert(flags.neverMates(Color.White))
++    assertNot(flags.neverMates(Color.Black))
+-- 
+2.43.0
+

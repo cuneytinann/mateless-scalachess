@@ -1,0 +1,61 @@
+From ef4b056207bd7b9fff286256d6e74ef092d52da2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?C=C3=BCneyt=20=C4=B0nan?= <cuneytinan37@gmail.com>
+Date: Sun, 25 Oct 2026 16:22:59 +0300
+Subject: [PATCH 2/3] opponentHasInsufficientMaterial: also when the opponent
+ is locked out
+
+When a flag falls, lila draws the game if
+position.opponentHasInsufficientMaterial. Ask Mateless's lock detector
+too: at the position itself (not in one without legal moves), and in
+the positions of #821's one-move lookahead, where it catches a king
+stepping out of a pawn's check into a lock, or a lock after a forced
+capture. Standard and From Position only.
+
+On 192,457 Lichess timeouts up to August 2026 scored as wins though the
+flagged side could never be mated (chasolver's data): scalachess draws
+136,913 today, 187,977 with this (50,829 at the position, 235 through
+the lookahead: 234 steps out of a pawn's check, 1 forced capture). It
+runs only when a flag falls; a lock test costs tens of nanoseconds when
+it fails at once, a few hundred when it proves a lock.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01CNt12HAZEwEiCouRmksRvj
+---
+ core/src/main/scala/Position.scala | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/core/src/main/scala/Position.scala b/core/src/main/scala/Position.scala
+index f029ae1..4fcf895 100644
+--- a/core/src/main/scala/Position.scala
++++ b/core/src/main/scala/Position.scala
+@@ -87,6 +87,7 @@ case class Position(board: Board, history: History, variant: Variant, color: Col
+ 
+   def opponentHasInsufficientMaterial: Boolean =
+     variant.opponentHasInsufficientMaterial(this) ||
++      (lockedFor(color) && legalMoves.nonEmpty) ||
+       (
+         legalMoves.nonEmpty &&
+           drops.forall(_.isEmpty) &&
+@@ -96,11 +97,18 @@ case class Position(board: Board, history: History, variant: Variant, color: Col
+             winner =!= Some(!color) && (
+               winner === Some(color) ||
+                 newPos.playerHasInsufficientMaterial ||
+-                newPos.staleMate
++                newPos.staleMate ||
++                newPos.lockedFor(color)
+             )
+           }
+       )
+ 
++  /** `flagged` can never be mated: pawns, kings and bishops form a structure that no series of legal
++    * moves can open (chess.mateless.Lock). Standard rules only.
++    */
++  private def lockedFor(flagged: Color): Boolean =
++    (variant.standard || variant.fromPosition) && mateless.Lock.cannotBeMated(this, flagged)
++
+   inline def playerHasInsufficientMaterial: Boolean = variant.playerHasInsufficientMaterial(this)
+ 
+   @threadUnsafe
+-- 
+2.43.0
+

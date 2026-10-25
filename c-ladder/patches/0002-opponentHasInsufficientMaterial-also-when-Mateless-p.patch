@@ -1,0 +1,49 @@
+From 3058baa3d9c53fe754819d42aa3c109290f7ae3e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?C=C3=BCneyt=20=C4=B0nan?= <cuneytinan37@gmail.com>
+Date: Sun, 25 Oct 2026 14:56:58 +0300
+Subject: [PATCH 2/3] opponentHasInsufficientMaterial: also when Mateless
+ proves the opponent can never mate
+
+When a flag falls, lila draws the game if
+position.opponentHasInsufficientMaterial. #821 added a one-move
+lookahead; this adds Mateless's ladder (opponentCanNeverMate): the
+material test, the lock detector and a 6-ply helpmate search. Standard
+and From Position only, and not in a position without legal moves.
+
+On 192,457 Lichess timeouts up to August 2026 that were scored as wins
+though the flagged side could never be mated (chasolver's data):
+scalachess draws 136,913 today, 192,421 with this; 36 stay unproven.
+The 55,508 new draws are blocked pawn structures (50,829) and deeper
+forced lines (4,679). Cost: about 0.9 microseconds per verdict, against
+0.6 today; it runs only when a flag falls.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01CNt12HAZEwEiCouRmksRvj
+---
+ core/src/main/scala/Position.scala | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/core/src/main/scala/Position.scala b/core/src/main/scala/Position.scala
+index f029ae1..0c11619 100644
+--- a/core/src/main/scala/Position.scala
++++ b/core/src/main/scala/Position.scala
+@@ -99,7 +99,15 @@ case class Position(board: Board, history: History, variant: Variant, color: Col
+                 newPos.staleMate
+             )
+           }
+-      )
++      ) || opponentCanNeverMate
++
++  /** The opponent can never mate, by Mateless's ladder (chess.mateless): the material test, the lock
++    * detector (pawns, kings and bishops that no series of legal moves can open) and a short helpmate
++    * search. Standard rules only; not in a position without legal moves (the game is over).
++    */
++  def opponentCanNeverMate: Boolean =
++    (variant.standard || variant.fromPosition) && legalMoves.nonEmpty &&
++      mateless.Ladder.opponentCannotMate(mateless.Domino(), this, color)
+ 
+   inline def playerHasInsufficientMaterial: Boolean = variant.playerHasInsufficientMaterial(this)
+ 
+-- 
+2.43.0
+

@@ -1,4 +1,4 @@
-From c838bb857eeb824f42c31cfba40ce02e9d64c043 Mon Sep 17 00:00:00 2001
+From be0f8fcec41db3c9e680cce7436d9f6096016b82 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?C=C3=BCneyt=20=C4=B0nan?= <cuneytinan37@gmail.com>
 Date: Tue, 27 Oct 2026 02:55:35 +0300
 Subject: [PATCH 3/3] LockTest: dead positions of locked pawns, kings and
@@ -12,25 +12,26 @@ pawn that can still capture.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_018qH7RHdrNYQtzmaq7gfmhu
 ---
- test-kit/src/test/scala/LockTest.scala | 42 ++++++++++++++++++++++++++
- 1 file changed, 42 insertions(+)
+ test-kit/src/test/scala/LockTest.scala | 43 ++++++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
  create mode 100644 test-kit/src/test/scala/LockTest.scala
 
 diff --git a/test-kit/src/test/scala/LockTest.scala b/test-kit/src/test/scala/LockTest.scala
 new file mode 100644
-index 00000000..ebc33b4d
+index 00000000..3f73261b
 --- /dev/null
 +++ b/test-kit/src/test/scala/LockTest.scala
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,43 @@
 +package chess
 +
 +import chess.Square.*
-+import chess.format.FullFen
++import chess.format.{ Fen, FullFen }
 +import chess.variant.Standard
 +
 +class LockTest extends ChessTest:
 +
-+  private def at(fen: String) = fenToGame(FullFen(fen), Standard).position
++  // Fen.readWithMoveNumber keeps the FEN's halfmove clock; Fen.read (and fenToGame) sets it to 0.
++  private def at(fen: String) = Fen.readWithMoveNumber(Standard, FullFen(fen)).get.position
 +
 +  // Lichess timeouts scored as wins, right after the last pawn move: dead positions.
 +  List(

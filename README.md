@@ -52,7 +52,7 @@ Lichess's own databases for August and September. Every row is classified in Mat
      history.halfMoveClock.value < 2 && (variant.standard || variant.fromPosition) &&
        mateless.Lock.cannotBeMated(this, Color.White) && mateless.Lock.cannotBeMated(this, Color.Black)
    ```
-3. **The tests**, `test-kit/src/test/scala/LockTest.scala` (42 lines): Lichess timeouts that were
+3. **The tests**, `test-kit/src/test/scala/LockTest.scala` (43 lines): Lichess timeouts that were
    dead positions, the clock rule, the pawn move that completes a lock, a king stepping out of a
    pawn's check into one, and no lock with a knight on the board or with a pawn that can still
    capture.
@@ -167,9 +167,16 @@ dead check, one test that stops at its first bitboard, is cheaper (17–20 ns) t
 
 scalachess compiles with each patch set under its own flags (`-Wunused:all -Werror`), and the files
 pass scalafmt 3.11.5 with scalachess's `.scalafmt.conf`. munit is not available where the patches
-were built, so `LockTest` and `MatelessTest` were not run by munit there: their assertions were run
-by `check/ingame/InGame.scala`, `check/lock/LockCases.scala` and
-`check/ladder/MatelessTestCases.scala`. With sbt: `git am in-game/patches/*.patch && sbt testKit/test`.
+were built, so the assertions of `LockTest` and `MatelessTest` were first run by
+`check/ingame/InGame.scala`, `check/lock/LockCases.scala` and
+`check/ladder/MatelessTestCases.scala`. The in-game test classes themselves were then run against a
+small munit stand-in, on scalachess built from source with the patches. That found one fault, now
+fixed in the third commit: `LockTest` read its FENs with `fenToGame`, which goes through `Fen.read`
+and drops the halfmove clock, so its clock test asked the lock at clock 0 and failed. It reads them
+with `Fen.readWithMoveNumber` now and passes 8 of 8. Of test-kit's 52 top-level test files, the 34
+the stand-in could compile ran 32 test classes, 414 tests, all passing; the 18 that need
+scalacheck or snapshot4s, and the tests in subdirectories, were left to sbt. With sbt:
+`git am in-game/patches/*.patch && sbt testKit/test`.
 
 Note for tools reading FENs into scalachess: `Fen.read` drops the halfmove clock;
 `Fen.readWithMoveNumber` keeps it (the in-game hook and a game's flags read it).

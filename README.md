@@ -52,7 +52,7 @@ Lichess's own databases for August and September. Every row is classified in Mat
      history.halfMoveClock.value < 2 && (variant.standard || variant.fromPosition) &&
        mateless.Lock.cannotBeMated(this, Color.White) && mateless.Lock.cannotBeMated(this, Color.Black)
    ```
-3. **The tests**, `test-kit/src/test/scala/LockTest.scala` (43 lines): Lichess timeouts that were
+3. **The tests**, `test-kit/src/test/scala/LockTest.scala` (44 lines): Lichess timeouts that were
    dead positions, the clock rule, the pawn move that completes a lock, a king stepping out of a
    pawn's check into one, and no lock with a knight on the board or with a pawn that can still
    capture.
@@ -77,8 +77,8 @@ A game set up from a FEN is asked at its first position only if that position's 
 
 **Cost.** lila evaluates `autoDraw` after every move. With the hook (JVM 21, medians):
 10.1 → 16.9 ns on a mix of positions from games' openings, 13.8 → 23.9 ns on a mix from their
-endgames; on endgame positions at halfmove clock 0 or 1, where the detector runs, 17.9 → 73.9 and
-21.6 → 85.3 ns. The detector itself, per call over 374,739 positions of real games and the 50,970
+endgames; on endgame positions where the detector runs, 17.9 → 73.9 ns at halfmove clock 0 and
+21.6 → 85.3 ns at clock 1. The detector itself, per call over 374,739 positions of real games and the 50,970
 locks: about 31–35 ns with a knight, rook or queen on the board (it returns at its first test) and
 about 150–190 ns on a lock. A rough loop over three positions already in the cache gives ~3.5 and
 ~65–72 ns; the difference is most likely the fetching of each position from memory.

@@ -1,0 +1,56 @@
+From a676e644ede7775ab85d9d0e4a48cc86fd46bb2c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?C=C3=BCneyt=20=C4=B0nan?= <cuneytinan37@gmail.com>
+Date: Tue, 27 Oct 2026 02:55:35 +0300
+Subject: [PATCH 2/3] autoDraw: also when pawns, kings and bishops lock both
+ sides out
+
+A position where neither side can ever be mated is dead (FIDE 5.2.2) and
+the game ends at once; scalachess draws it today when the material is
+insufficient. Ask Mateless's lock detector too, for both sides: pawns,
+kings and bishops that no series of legal moves can open. It is asked
+after a capture or a pawn move and one move later (halfmove clock 0 or
+1): a lock can appear only then, at once, or once an en passant right
+has lapsed or a king has stepped out of a pawn's check. Before its fixed
+point it fails at once with a knight, rook or queen on the board, two
+bishops of one side on squares of one colour, or an en passant square.
+Standard and From Position only.
+
+Of 195,287 Lichess games up to September 2026 lost on time though the
+flagged side could never be mated (chasolver's data to July, a scan of
+Lichess's databases for August and September), scalachess draws 138,572
+today; with this 190,465, the 51,893 more as dead positions before the
+flag fell. In August and September 8,718 drawn games went on for a
+median of 14 plies after such a lock had appeared. autoDraw costs about
+5-7 ns more per move in game positions.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018qH7RHdrNYQtzmaq7gfmhu
+---
+ core/src/main/scala/Position.scala | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/core/src/main/scala/Position.scala b/core/src/main/scala/Position.scala
+index f029ae1c..efc365d6 100644
+--- a/core/src/main/scala/Position.scala
++++ b/core/src/main/scala/Position.scala
+@@ -83,7 +83,16 @@ case class Position(board: Board, history: History, variant: Variant, color: Col
+ 
+   inline def staleMate: Boolean = variant.staleMate(this)
+ 
+-  inline def autoDraw: Boolean = variant.autoDraw(this) || variant.specialDraw(this)
++  inline def autoDraw: Boolean = variant.autoDraw(this) || variant.specialDraw(this) || lockedOut
++
++  /** A dead position (FIDE 5.2.2): pawns, kings and bishops that no series of legal moves can open, so
++    * neither side can ever be mated (chess.mateless.Lock). Asked after a capture or a pawn move and one
++    * move later (halfmove clock 0 or 1): a lock appears only then, at once, or once an en passant right
++    * has lapsed or a king has stepped out of a pawn's check. Standard and From Position only.
++    */
++  def lockedOut: Boolean =
++    history.halfMoveClock.value < 2 && (variant.standard || variant.fromPosition) &&
++      mateless.Lock.cannotBeMated(this, Color.White) && mateless.Lock.cannotBeMated(this, Color.Black)
+ 
+   def opponentHasInsufficientMaterial: Boolean =
+     variant.opponentHasInsufficientMaterial(this) ||
+-- 
+2.43.0
+

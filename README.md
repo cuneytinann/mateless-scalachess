@@ -5,22 +5,46 @@ three rungs: a material test, a lock detector (pawns, kings and bishops that no 
 moves can open) and a short helpmate search (Domino). Mateless itself is engine-independent
 (JavaScript, Rust, WebAssembly).
 This repository is its use in [scalachess](https://github.com/lichess-org/scalachess), for Lichess:
-two patch sets on scalachess 18.0.1 (`a498819`, 22 Oct 2026).
+the lock detector alone, on scalachess 18.0.1 (`a498819`, 22 Oct 2026), in two forms.
 
-| | what | lines | timeouts drawn |
+| | what | lines | timeouts drawn (to Sep 2026) |
 |---|---|---|---|
-| scalachess 18.0.1 | material, and #821's one-move lookahead | | 136,913 (71.1%) |
-| **[a-lock](a-lock)** (proposed) | the lock detector, at the position and in #821's lookahead | 181 + 9 | **187,977 (97.7%)** |
-| [c-ladder](c-ladder) (reference) | the whole ladder: material, lock, Domino, a game's flags | 724 + 9 | 192,421 (99.98%) |
+| scalachess 18.0.1 | material, and #821's one-move lookahead at the flag | | 138,572 (71.0%) |
+| **[in-game](in-game)** (proposed) | a dead position by lock ends the game, asked at halfmove clock 0 or 1 | 181 + 10 | **190,465 (97.5%)** |
+| [a-lock](a-lock) (alternative) | the lock detector when a flag falls, at the position and in #821's lookahead | 181 + 9 | 190,719 (97.7%) |
 
-The data: chasolver's 192,457 Lichess timeouts up to 31 July 2026 that were scored as wins although
-the flagged side could never be mated (Mateless's classification of every row:
-[`data/timeouts_classified.tsv`](https://github.com/cuneytinann/Mateless/tree/main/data)). When a flag falls, lila draws the game if
-`position.opponentHasInsufficientMaterial` (`Finisher.outOfTime`); both patch sets extend that
-function, so lila needs no change. #821 (johndoknjas, merged 23 August 2026) came after the data:
-scalachess draws about 70% of the rows of every month from 2017 to 2026.
+The data: 195,287 Lichess games lost on time although the flagged side could never be mated:
+chasolver's 192,457 up to 31 July 2026, and 2,830 from a scan of Lichess's databases for August
+and September (Mateless's classification of every row:
+[`data/timeouts_classified.tsv`](https://github.com/cuneytinann/Mateless/tree/main/data)). Both
+forms change scalachess only; lila needs no change.
 
-## a-lock: the lock detector alone
+[c-ladder](c-ladder), the whole ladder with the Domino search, is not proposed. Its sources stay
+here because the comparison tools use them (`tools/build.sh ... c` and `ref`).
+
+## in-game: a dead position by lock ends the game
+
+- `core/src/main/scala/mateless/Lock.scala`: the same file as a-lock's (181 lines).
+- The hook (`Position.autoDraw`, 10 lines with its comment): after scalachess's own tests
+  (insufficient material, fifty moves, fivefold repetition), `lockedOut`: the halfmove clock is 0 or 1,
+  Standard or From Position, and the lock detector proves both sides unable to be mated. Inside the
+  detector the cheap gates come before its fixed point: a knight, rook or queen on the board, two
+  bishops of one side on squares of one colour, an en passant square.
+- `LockTest` (42 lines).
+
+A lock appears only after a capture or a pawn move (clock 0), or one move later (clock 1): once an
+en passant right has lapsed, or a king has stepped out of a pawn's check. lila reads
+`position.status` after every move and ends the game as a draw; it shows "Draw" without a reason.
+Of the 195,287 timeouts it ends 51,893 before the flag fell; what it leaves: 4,532 forced lines of
+more than one move, 237 kings that would have stepped out of a pawn's check after the flag, 16
+locks of one side only (not dead), 36 that nothing here proves, 1 other. In August and September
+8,718 drawn games went on for a median of 14 plies after such a lock had appeared.
+
+Verification (`check/ingame`): scalachess's `AutodrawTest` expectations and `LockTest`'s, 24 cases;
+on 3,643,939 positions `autoDraw` is today's or (clock 0 or 1 and the lock detector for both sides),
+no exception. Cost: `autoDraw` ~5–7 ns more per move in game positions.
+
+## a-lock (alternative): the lock detector when a flag falls
 
 - `core/src/main/scala/mateless/Lock.scala` (181 lines, package `chess.mateless`): the bitboard
   fixed point of Mateless's lock detector, one side at a time, allocating nothing.
@@ -38,7 +62,7 @@ Cost (JVM 21, ns per call, after warm-up): ~150–190 on a locked position (the 
 ~30–35 on positions of real games (a knight, rook or queen on the board: it stops at once). It
 runs only when a flag falls. Mateless's Rust engine: ~105 and ~9 ns.
 
-## c-ladder: the whole ladder
+## c-ladder (not proposed): the whole ladder
 
 Material, lock and Domino on scalachess's own board, legal moves and positions
 (`mateless/Static.scala`, `Domino.scala`, `Ladder.scala`), and the hook asking the ladder
@@ -80,14 +104,20 @@ Note for tools reading FENs into scalachess: `Fen.read` drops the halfmove clock
 
 | | |
 |---|---|
-| `a-lock/` | `Lock.scala` and the three commits (`patches/`): the detector, the hook, `LockTest` |
+| `in-game/` | `Lock.scala` and the three commits (`patches/`): the detector, the hook in `autoDraw`, `LockTest` (proposed) |
+| `a-lock/` | `Lock.scala` and the three commits (`patches/`): the detector, the hook at the flag, `LockTest` (alternative) |
 | `c-ladder/` | `Static.scala`, `Domino.scala`, `Ladder.scala` and the three commits: the ladder, the hook, `MatelessTest` |
+| `check/ingame/` | `InGame.scala` (`dead`, `time`, `cases`) and `fivefold_moves.txt` (AutodrawTest's fivefold game) |
 | `check/lock/` | `LockCheck.scala` (`locks`, `coverage`, `rows`, `time`), `LockCases.scala`, `lock_ref.js` (the same answers from `mateless.js`) |
 | `check/ladder/` | `Check.scala`: the Rust tool's `labels`, `layers`, `games` lines, timings, takebacks, and against today's scalachess `scalachess`, `bare`, `material`, `material-time`, `rows`; `TestKitCases.scala`, `MatelessTestCases.scala` |
-| `tools/build.sh` | scalachess and its dependencies from source, without sbt or Maven Central: `build.sh <dir> a`, `c` or `ref` |
+| `tools/build.sh` | scalachess and its dependencies from source, without sbt or Maven Central: `build.sh <dir> ingame`, `a`, `c` or `ref` |
 
 ```sh
-tools/build.sh /tmp/w a       # about ten minutes the first time; needs git, curl, Java 21
+tools/build.sh /tmp/w ingame  # about ten minutes the first time; needs git, curl, Java 21
+CP=$(cat /tmp/w/classpath-ingame.txt)
+java -cp "$CP" ingame cases check/ingame/fivefold_moves.txt  # AutodrawTest's and LockTest's expectations
+java -Xss16m -cp "$CP" ingame dead fens.txt > ingame.tsv       # per FEN: autoDraw with the patch
+tools/build.sh /tmp/w a
 CP=$(cat /tmp/w/classpath-a.txt)
 java -cp "$CP" lockcases
 java -Xss16m -cp "$CP" lockcheck coverage timeouts.csv        # chasolver's CSV of the timeouts

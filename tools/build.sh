@@ -1,10 +1,12 @@
 #!/bin/bash
-# build.sh <work dir> <a|c|ref> [scalachess commit]
+# build.sh <work dir> <ingame|a|c|ref> [scalachess commit]
 #
 # Builds scalachess from source, without sbt and without Maven Central: the Scala compilers come
 # from GitHub releases, every dependency from its GitHub tag, at the versions of scalachess's
 # build.sbt (18.0.1, a4988192). Then the comparison tools.
 #
+#   ingame scalachess with in-game/patches (the lock detector; autoDraw at halfmove clock 0 or 1;
+#        LockTest) + check/ingame
 #   a    scalachess with a-lock/patches (the lock detector; the hook; LockTest)  + check/lock
 #   c    scalachess with c-ladder/patches (the whole ladder; the hook; MatelessTest) + check/ladder
 #   ref  scalachess as it is, and c-ladder's sources beside it as a library      + check/ladder/Check.scala
@@ -17,7 +19,7 @@
 # classpath-<mode>.txt, for:   java -Xss16m -cp "$(cat <work dir>/classpath-<mode>.txt)" <tool> ...
 set -e
 W=$(realpath -m "$1"); MODE=$2; COMMIT=${3:-a4988192e6531f92c806e1603a87467c729d5db1}
-case "$MODE" in a|c|ref) ;; *) echo "usage: build.sh <work dir> <a|c|ref> [commit]"; exit 1;; esac
+case "$MODE" in ingame|a|c|ref) ;; *) echo "usage: build.sh <work dir> <ingame|a|c|ref> [commit]"; exit 1;; esac
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$W"/src "$W"/jars33 "$W"/jars38 "$W"/classes "$W"/gen
 cd "$W"
@@ -87,13 +89,14 @@ lib 38 scalalib-core "-feature -language:postfixOps -release:21" src/scalalib/co
 lib 38 scalalib-model "-feature -language:postfixOps -release:21" src/scalalib/model/src/main/scala
 DEPS=$STD38:$(ls "$W"/jars33/*.jar "$W"/jars38/*.jar | tr '\n' ':')
 
-# ── scalachess, as it is (ref) or with a patch set (a, c), with its own warnings as errors ──
+# ── scalachess, as it is (ref) or with a patch set (ingame, a, c), with its own warnings as errors ──
 # (plain scalac reports two unused @nowarn in Variant.scala that sbt does not: silenced here)
 [ -d src/scalachess ] || git clone -q https://github.com/lichess-org/scalachess.git src/scalachess
 T=src/scalachess-$MODE
 if [ ! -d $T ]; then
   git -C src/scalachess -c advice.detachedHead=false worktree add -q "$W/$T" "$COMMIT"
   case "$MODE" in
+    ingame) git -C $T -c user.name=build -c user.email=build@localhost am -q "$HERE"/in-game/patches/*.patch ;;
     a) git -C $T -c user.name=build -c user.email=build@localhost am -q "$HERE"/a-lock/patches/*.patch ;;
     c) git -C $T -c user.name=build -c user.email=build@localhost am -q "$HERE"/c-ladder/patches/*.patch ;;
   esac
@@ -112,6 +115,8 @@ fi
 # ── the comparison tools ─────────────────────────────────────────────────────────────────
 OUT=classes/check-$MODE; rm -rf $OUT && mkdir -p $OUT
 case "$MODE" in
+  ingame) "$SC38" -color:never -release:21 -classpath "$DEPS$JAR" -d $OUT "$HERE"/check/ingame/*.scala
+       echo "$DEPS$JAR:$W/$OUT" > classpath-ingame.txt ;;
   a)   "$SC38" -color:never -release:21 -classpath "$DEPS$JAR" -d $OUT "$HERE"/check/lock/*.scala
        echo "$DEPS$JAR:$W/$OUT" > classpath-a.txt ;;
   c)   "$SC38" -color:never -release:21 -classpath "$DEPS$JAR" -d $OUT "$HERE"/check/ladder/*.scala

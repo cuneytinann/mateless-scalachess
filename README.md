@@ -1,65 +1,135 @@
 # Mateless for scalachess
 
-[Mateless](https://github.com/cuneytinann/Mateless) proves that a side can never be mated, with
-three rungs: a material test, a lock detector (pawns, kings and bishops that no series of legal
-moves can open) and a short helpmate search (Domino). Mateless itself is engine-independent
-(JavaScript, Rust, WebAssembly).
-This repository is its use in [scalachess](https://github.com/lichess-org/scalachess), for Lichess:
-the lock detector alone, on scalachess 18.0.1 (`a498819`, 22 Oct 2026), in two forms.
+When pawns, kings and bishops lock so that no series of legal moves can open the structure,
+neither side can ever checkmate: the position is dead. FIDE ends the game there, drawn (5.2.2),
+and a flag fall or a resignation in such a position is a draw as well (6.9, 5.1.2). scalachess
+recognises insufficient material, but not a lock, so Lichess scores these games as wins.
 
-| | what | lines | timeouts drawn (to Sep 2026) |
-|---|---|---|---|
-| scalachess 18.0.1 | material, and #821's one-move lookahead at the flag | | 138,572 (71.0%) |
-| **[in-game](in-game)** (proposed) | a dead position by lock ends the game, asked at halfmove clock 0 or 1 | 181 + 10 | **190,465 (97.5%)** |
-| [a-lock](a-lock) (alternative) | the lock detector when a flag falls, at the position and in #821's lookahead | 181 + 9 | 190,719 (97.7%) |
+This repository is the evidence for a scalachess change that ends a game, drawn, the moment it
+locks: the lock detector of [Mateless](https://github.com/cuneytinann/Mateless), 181 lines of
+Scala, asked by `Position.autoDraw`. The change is three commits on scalachess 18.0.1 (`a498819`,
+22 Oct 2026): [`in-game/patches`](in-game/patches), and the same commits on the `dead-position-lock`
+branch of [cuneytinann/scalachess](https://github.com/cuneytinann/scalachess/tree/dead-position-lock).
 
-The data: 195,287 Lichess games lost on time although the flagged side could never be mated:
-chasolver's 192,457 up to 31 July 2026, and 2,830 from a scan of Lichess's databases for August
-and September (Mateless's classification of every row:
-[`data/timeouts_classified.tsv`](https://github.com/cuneytinann/Mateless/tree/main/data)). Both
-forms change scalachess only; lila needs no change.
+| | what | timeouts drawn (of 195,287, to Sep 2026) |
+|---|---|---|
+| scalachess 18.0.1 | insufficient material, and #821's one-move lookahead when a flag falls | 138,572 (71.0%) |
+| **[in-game](in-game)** (proposed) | a lock of both sides ends the game, asked at halfmove clock 0 or 1 | **190,465 (97.5%)**, 52,034 of them before the flag fell |
+| [a-lock](a-lock) (alternative) | the lock detector when a flag falls, at the position and in #821's lookahead | 190,719 (97.7%) |
 
-[c-ladder](c-ladder), the whole ladder with the Domino search, is not proposed. Its sources stay
-here because the comparison tools use them (`tools/build.sh ... c` and `ref`).
+The figures come from 195,287 rated Lichess games lost on time although the flagged side could
+never be mated: chasolver's 192,457 up to 31 July 2026
+([chasolver.org/unfair-games](https://chasolver.org/unfair-games)) and 2,830 from a scan of
+Lichess's own databases for August and September. Every row is classified in Mateless's
+[`data/`](https://github.com/cuneytinann/Mateless/tree/main/data).
 
-## in-game: a dead position by lock ends the game
+## The problem
 
-- `core/src/main/scala/mateless/Lock.scala`: the same file as a-lock's (181 lines).
-- The hook (`Position.autoDraw`, 10 lines with its comment): after scalachess's own tests
-  (insufficient material, fifty moves, fivefold repetition), `lockedOut`: the halfmove clock is 0 or 1,
-  Standard or From Position, and the lock detector proves both sides unable to be mated. Inside the
-  detector the cheap gates come before its fixed point: a knight, rook or queen on the board, two
-  bishops of one side on squares of one colour, an en passant square.
-- `LockTest` (42 lines).
+- **Timeouts.** Since #821 (merged in August 2026; on Lichess from 6 September, judging by the
+  data) scalachess looks one move ahead when a flag falls, and the unfair timeouts fell from about
+  65 a day to 19. Of the 460 still lost this way from 7 to 30 September, 422 (92%) were locks.
+- **Dead games played on.** In August and September 8,718 drawn games went on after their position
+  had become a lock for both sides, for a median of 14 plies (about 41 hours of clock time in
+  all), until a repetition, an agreement or another rule ended them.
+- **Resignations.** Of the 170 games resigned in August and September although the opponent could
+  never mate, 95 were locks; Lichess scores every resignation as a loss.
 
-A lock appears only after a capture or a pawn move (clock 0), or one move later (clock 1): once an
-en passant right has lapsed, or a king has stepped out of a pawn's check. lila reads
-`position.status` after every move and ends the game as a draw; it shows "Draw" without a reason.
-Of the 195,287 timeouts it ends 51,893 before the flag fell; what it leaves: 4,532 forced lines of
-more than one move, 237 kings that would have stepped out of a pawn's check after the flag, 16
-locks of one side only (not dead), 36 that nothing here proves, 1 other. In August and September
-8,718 drawn games went on for a median of 14 plies after such a lock had appeared.
+## The change: `in-game`
 
-Verification (`check/ingame`): scalachess's `AutodrawTest` expectations and `LockTest`'s, 24 cases;
-on 3,643,939 positions `autoDraw` is today's or (clock 0 or 1 and the lock detector for both sides),
-no exception. Cost: `autoDraw` ~5–7 ns more per move in game positions.
+1. **The detector**, `core/src/main/scala/mateless/Lock.scala` (181 lines, package
+   `chess.mateless`): `Lock.cannotBeMated(position, flagged)`. A bitboard fixed point over the
+   kings' reaches, the pawns that can never move and the squares where a pawn can be taken; it
+   searches nothing and, apart from reading the position's lazy en passant square, generates no
+   move and allocates nothing. Before the fixed point it fails at
+   once with a knight, rook or queen on the board, two bishops of one side on squares of one
+   colour, or an en passant square. Nothing calls it in this commit.
+2. **The hook**, in `Position.scala`: one line changed and `lockedOut` added (3 lines of code, 5
+   of comment):
+   ```scala
+   inline def autoDraw: Boolean = variant.autoDraw(this) || variant.specialDraw(this) || lockedOut
 
-## a-lock (alternative): the lock detector when a flag falls
+   def lockedOut: Boolean =
+     history.halfMoveClock.value < 2 && (variant.standard || variant.fromPosition) &&
+       mateless.Lock.cannotBeMated(this, Color.White) && mateless.Lock.cannotBeMated(this, Color.Black)
+   ```
+3. **The tests**, `test-kit/src/test/scala/LockTest.scala` (42 lines): Lichess timeouts that were
+   dead positions, the clock rule, the pawn move that completes a lock, a king stepping out of a
+   pawn's check into one, and no lock with a knight on the board or with a pawn that can still
+   capture.
 
-- `core/src/main/scala/mateless/Lock.scala` (181 lines, package `chess.mateless`): the bitboard
-  fixed point of Mateless's lock detector, one side at a time, allocating nothing.
+lila needs no code change: it reads `position.status` after every move, and `autoDraw` gives
+`Status.Draw`. The game ends as a plain "Draw"; a reason of its own (a dead position) would be a
+later change in lila. Like a position with insufficient material today, a locked position is not
+`playable`: lila's FEN forms read with `Fen.read`, which sets the halfmove clock to 0, so they
+reject every locked FEN as a starting position (games, tournaments, simuls, swiss, a study made
+from a position), and lila-ws stores no cloud eval for one. Analysis and study boards are not
+affected; chessops gives their moves.
+
+**Why only at halfmove clock 0 or 1.** A lock can appear only after a capture or a pawn move: at
+once (clock 0), or one move later (clock 1), once the en passant right of a double step has lapsed
+or a king has stepped out of the check a pawn just gave. Any other move of a king or a bishop stays
+inside the reaches the fixed point already holds, so it cannot complete a lock. The clock alone
+therefore says when to ask, nothing has to be remembered from the move before, and in most plies
+of a game the hook costs one comparison. Asking only one move later (clock 1) would be a little
+cheaper, but it would miss the 3,110 timeouts whose flag fell right after the move that locked.
+A game set up from a FEN is asked at its first position only if that position's halfmove clock is
+0 or 1.
+
+**Cost.** lila evaluates `autoDraw` after every move. With the hook (JVM 21, medians):
+10.1 → 16.9 ns on a mix of positions from games' openings, 13.8 → 23.9 ns on a mix from their
+endgames; on endgame positions at halfmove clock 0 or 1, where the detector runs, 17.9 → 73.9 and
+21.6 → 85.3 ns. The detector itself, per call over 374,739 positions of real games and the 50,970
+locks: about 31–35 ns with a knight, rook or queen on the board (it returns at its first test) and
+about 150–190 ns on a lock. A rough loop over three positions already in the cache gives ~3.5 and
+~65–72 ns; the difference is most likely the fetching of each position from memory.
+
+**What it leaves.** Of the 195,287 timeouts, 4,822: 4,532 forced lines of more than one move (a
+short search would be needed, Mateless's Domino), 237 kings that would have stepped out of a pawn's
+check only after the flag, 16 locks of one side only (not dead: the flagged side could still mate,
+a question for the flag), 36 that nothing here proves, and one forced capture of a rook after the
+flag.
+
+## How sure
+
+The detector is sound, not complete: a structure it calls locked can never be opened, but it does
+not recognise every dead position.
+
+- `Lock.scala` is a port of the algorithm of Mateless's `src/lock.js` (the same sets and tests,
+  not a line-for-line translation). On 3,643,939 positions it
+  gives `mateless.js`'s answer for both sides on every one, and with the hook `autoDraw` is
+  today's, or the clock at 0 or 1 and the lock for both sides, without exception (`check/ingame`,
+  `check/lock`).
+- Mateless's own evidence ([RESULTS.md](https://github.com/cuneytinann/Mateless/blob/main/docs/RESULTS.md#4-soundness)):
+  no false draw against chasolver's labels (68,950 positions, both sides); 23,001 of 23,001 fuzzed
+  lock certificates unwinnable by chasolver's full search; and from every lock in the data the
+  reachable positions enumerated (up to 200,000 each) with no position breaking what the
+  certificate claims: 50,970 locks up to July (271.8 million positions, 50,692 enumerated
+  completely) and 1,175 in August and September (5.8 million, 1,171 completely).
+- The August and September scan checked 24,044 "cannot mate" verdicts of Mateless's whole ladder
+  (material, lock, Domino) with an independent search of the reachable positions: no mate in any;
+  23,310 enumerated completely, 734 stopped at a cap of 1 million positions.
+- scalachess's own expectations: `AutodrawTest`'s and `LockTest`'s hold (24 cases,
+  `check/ingame`). The branch's CI runs scalachess's checks:
+  [`sbt testKit/test`, `sbt compile`, `sbt check`](https://github.com/cuneytinann/scalachess/actions?query=branch%3Adead-position-lock).
+
+## The alternative: `a-lock`, when a flag falls
+
+- `core/src/main/scala/mateless/Lock.scala`: the same file.
 - The hook (`Position.opponentHasInsufficientMaterial`, 9 lines): the lock detector at the position
   itself (not in a position without legal moves: the game is over), and in the positions of #821's
   lookahead. Standard and From Position only.
 - `LockTest` (37 lines).
 
-Of the 51,064 timeouts it adds, 50,829 are locks at the position itself, and 235 come through the
-lookahead: 234 kings stepping out of a pawn's check into a lock, one lock after a forced capture
-of a rook. What it leaves: 4,444 positions where a forced line of more than one move is needed
-(the ladder's Domino search), and 36 that nothing here proves.
+It draws 254 timeouts more than `in-game` (190,719): of the 52,147 it adds to today's, 51,909 are
+locks at the position itself, 16 of them locks of one side only, and 238 come through the
+lookahead (237 kings stepping out of a pawn's check into a lock, one lock after a forced capture of
+a rook). What it leaves: 4,532 forced lines of more than one move and the 36 unproven. But it acts
+only when a flag falls: a dead game is still played on, and a resignation in it is still a loss.
+`in-game` follows FIDE 5.2.2 instead; the two can also be combined.
 
-Cost (JVM 21, ns per call, after warm-up): ~150–190 on a locked position (the whole fixed point),
-~30–35 on positions of real games (a knight, rook or queen on the board: it stops at once). It
+Cost (JVM 21, ns per call, after warm-up, over the 50,970 locks and 374,739 positions of real
+games): ~150–190 on a locked position (the whole fixed point), ~30–35 on positions of real games
+(a knight, rook or queen on the board: it stops at once). It
 runs only when a flag falls. Mateless's Rust engine: ~105 and ~9 ns.
 
 ## c-ladder (not proposed): the whole ladder
@@ -70,7 +140,9 @@ Material, lock and Domino on scalachess's own board, legal moves and positions
 are those of the JavaScript and Rust engines. A verdict when a flag falls costs ~1–2.5 µs;
 `opponentHasInsufficientMaterial` with the hook ~0.9 µs on average (0.6 µs without). A game's two
 flags ply by ply (`Flags`, with `rewind` for takebacks) cost ~6.5–7 µs per ply, most of it
-scalachess's king-safety test per move (Mateless's own Rust engine: ~0.6 µs).
+scalachess's king-safety test per move (Mateless's own Rust engine: ~0.6 µs). It draws 195,251 of
+the 195,287 timeouts (99.98%). Its sources stay here for the comparison tools (`tools/build.sh ... c`
+and `ref`).
 
 ## Why not the material test
 
@@ -86,19 +158,21 @@ dead check, one test that stops at its first bitboard, is cheaper (17–20 ns) t
 
 | | |
 |---|---|
-| a: lock answers | the same as `mateless.js` on 636,146 positions (chasolver's two files, the timeouts, real games), both sides |
-| a: coverage | 187,977 of the 192,457 timeouts with the hook |
+| in-game, a: `Lock.scala` | the same answers as `mateless.js` on 3,643,939 positions (chasolver's two files, the timeouts, real games), both sides |
+| in-game: `autoDraw` | today's, or (clock 0 or 1 and the lock for both sides), on the same positions; `AutodrawTest`'s and `LockTest`'s expectations hold (24 cases) |
+| in-game: coverage | 190,465 of the 195,287 timeouts, 52,034 of them ended before the flag fell (51,893 lost on time today) |
+| a: coverage | 190,719 of the 195,287 timeouts with the hook |
 | a, c: scalachess's tests | the 22 standard-chess expectations on `opponentHasInsufficientMaterial` (`AutodrawTest`, `VariantTest`) hold with the hook |
 | c: against the Rust engine | byte-identical, node counts included: chasolver's 68,950 positions, 119,921 + 192,457 rows, 4,000 + 24,392 + 222,006 games (flags ply by ply), 4,598 takebacks |
 
-scalachess compiles with each patch set under its own flags (`-Wunused:all -Werror`); the files are
-formatted with scalafmt 3.11.5 and its `.scalafmt.conf`. munit is not available where this was
-built: `LockTest` and `MatelessTest` were not run by munit; their assertions were run by
-`check/lock/LockCases.scala` and `check/ladder/MatelessTestCases.scala`. With sbt:
-`git am a-lock/patches/*.patch && sbt testKit/test`.
+scalachess compiles with each patch set under its own flags (`-Wunused:all -Werror`), and the files
+pass scalafmt 3.11.5 with scalachess's `.scalafmt.conf`. munit is not available where the patches
+were built, so `LockTest` and `MatelessTest` were not run by munit there: their assertions were run
+by `check/ingame/InGame.scala`, `check/lock/LockCases.scala` and
+`check/ladder/MatelessTestCases.scala`. With sbt: `git am in-game/patches/*.patch && sbt testKit/test`.
 
 Note for tools reading FENs into scalachess: `Fen.read` drops the halfmove clock;
-`Fen.readWithMoveNumber` keeps it (a game's flags read it).
+`Fen.readWithMoveNumber` keeps it (the in-game hook and a game's flags read it).
 
 ## Layout
 

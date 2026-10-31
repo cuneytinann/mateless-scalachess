@@ -9,7 +9,8 @@ This repository is the evidence for a scalachess change that ends a game, drawn,
 locks: the lock detector of [Mateless](https://github.com/cuneytinann/Mateless), 181 lines of
 Scala, asked by `Position.autoDraw`. The change is three commits on scalachess 18.0.1 (`a498819`,
 22 Oct 2026): [`in-game/patches`](in-game/patches), and the same commits on the `dead-position-lock`
-branch of [cuneytinann/scalachess](https://github.com/cuneytinann/scalachess/tree/dead-position-lock).
+branch of [cuneytinann/scalachess](https://github.com/cuneytinann/scalachess/tree/dead-position-lock),
+proposed in [lichess-org/scalachess#907](https://github.com/lichess-org/scalachess/pull/907).
 
 | | what | timeouts drawn (of 195,287, to Sep 2026) |
 |---|---|---|

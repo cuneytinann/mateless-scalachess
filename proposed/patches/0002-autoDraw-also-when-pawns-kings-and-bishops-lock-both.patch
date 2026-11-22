@@ -1,0 +1,36 @@
+From 2a43b5a29b898f977abec3c4a28986580c359d1a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?C=C3=BCneyt=20=C4=B0nan?= <cuneytinan37@gmail.com>
+Date: Thu, 19 Nov 2026 20:04:50 +0300
+Subject: [PATCH 2/5] autoDraw: also when pawns, kings and bishops lock both
+ sides out
+
+---
+ core/src/main/scala/Position.scala | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/core/src/main/scala/Position.scala b/core/src/main/scala/Position.scala
+index f029ae1..a2893ac 100644
+--- a/core/src/main/scala/Position.scala
++++ b/core/src/main/scala/Position.scala
+@@ -83,7 +83,17 @@ case class Position(board: Board, history: History, variant: Variant, color: Col
+ 
+   inline def staleMate: Boolean = variant.staleMate(this)
+ 
+-  inline def autoDraw: Boolean = variant.autoDraw(this) || variant.specialDraw(this)
++  inline def autoDraw: Boolean = variant.autoDraw(this) || variant.specialDraw(this) || lockedOut
++
++  /** Dead position (FIDE 5.2.2): pawns, kings and bishops locked so that neither side can ever mate.
++    * A lock can only appear right after a capture or a pawn move, or one move later.
++    */
++  def lockedOut: Boolean =
++    history.halfMoveClock.value < 2 && lockable &&
++      mateless.Lock.cannotBeMated(this, Color.White) && mateless.Lock.cannotBeMated(this, Color.Black)
++
++  // With no rook on the board there is no castling: in Chess960 a lock is the same as in Standard.
++  private inline def lockable: Boolean = variant.standard || variant.chess960 || variant.fromPosition
+ 
+   def opponentHasInsufficientMaterial: Boolean =
+     variant.opponentHasInsufficientMaterial(this) ||
+-- 
+2.43.0
+
